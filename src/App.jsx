@@ -12436,14 +12436,20 @@ export default function App() {
     </div>
   );
 
-  const applyFilters = (tasks) => tasks.filter(t => {
-    if (!layers.includes(t.status)) return false;
+  // applyAdvancedFilters: owner/priority/project/dept/date — no layer/status filter
+  // Used by Table + Dashboard so the Filters panel works there too
+  const applyAdvancedFilters = (tasks) => tasks.filter(t => {
     if (filters.owners.length     && !filters.owners.includes(t.owner))           return false;
     if (filters.priorities.length && !filters.priorities.includes(t.priority))    return false;
     if (filters.projects.length   && !filters.projects.includes(t.project))       return false;
     if (filters.departments.length&& !filters.departments.includes(t.department)) return false;
     if (filters.dueDateFrom && t.projectedEndDate && t.projectedEndDate < filters.dueDateFrom) return false;
     if (filters.dueDateTo   && t.projectedEndDate && t.projectedEndDate > filters.dueDateTo)   return false;
+    return true;
+  });
+  const applyFilters = (tasks) => tasks.filter(t => {
+    if (!layers.includes(t.status)) return false;
+    if (!applyAdvancedFilters([t]).length) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const searchable = ['title','shortId','owner','nextAction','additionalInfo','project','department','type','requesterName','requestSource','status','priority','comment','statusReason'];
@@ -12452,7 +12458,7 @@ export default function App() {
     return true;
   });
   const canvasTasks = applyFilters(data.tasks.filter(t => t.canvasId===activeCanvas));
-  const allCanvasTasks = data.tasks.filter(t => t.canvasId===activeCanvas);
+  const allCanvasTasks = applyAdvancedFilters(data.tasks.filter(t => t.canvasId===activeCanvas));
   const activeTaskObj = data.tasks.find(t=>t.id===activeTask);
 
   const updateTask = (updated) => save({ ...data, tasks:data.tasks.map(t=>t.id===updated.id?updated:t) });
