@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+﻿import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { storage } from './storage';
 
 // ─────────────────────────────────────────────
@@ -19,6 +19,13 @@ styleTag.innerHTML = `
     100% { transform: scale(1);   opacity: 0.55; }
   }
   .belly-kick { animation: bellykick 0.32s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  @media (max-width: 768px) {
+    .tb-topbar { flex-wrap: wrap !important; height: auto !important; min-height: 48px !important; padding: 6px 8px !important; }
+    .tb-canvas-tabs { display: none !important; }
+    .tb-detail-panel { width: 100vw !important; border-radius: 16px 16px 0 0 !important; top: 20vh !important; }
+    .tb-table-wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+    .tb-topbar-search input { width: 140px !important; }
+  }
 `;
 document.head.appendChild(styleTag);
 
@@ -9518,6 +9525,43 @@ function countTotal(subtasks = []) {
   return subtasks.reduce((a, s) => a + 1 + countTotal(s.subtasks), 0);
 }
 
+
+// ─────────────────────────────────────────────
+// MODULE-LEVEL STYLE CONSTANTS (used by TaskField)
+// ─────────────────────────────────────────────
+const DP_INPUT = {
+  width:"100%", background:"#f8fafc",
+  border:"1px solid #e2e8f0", borderRadius:6,
+  padding:"6px 9px", color:"#475569", fontSize:12,
+  outline:"none", fontFamily:"inherit",
+};
+const DP_LABEL = {
+  display:"block", fontSize:10, fontWeight:700,
+  letterSpacing:"0.08em", color:"#94a3b8",
+  textTransform:"uppercase", marginBottom:3,
+};
+const DP_WRAP = { marginBottom:12 };
+
+// TaskField must be defined OUTSIDE DetailPanel so React never unmounts/remounts
+// the actual input DOM node on parent re-renders (fixes "one char at a time" bug).
+function TaskField({ fkey, label, type="text", opts, value, vf, onChange }) {
+  if (vf && vf[fkey] === false) return null;
+  return (
+    <div style={DP_WRAP}>
+      <label style={DP_LABEL}>{label}</label>
+      {opts
+        ? <select value={value||""} onChange={e=>onChange({[fkey]:e.target.value})} style={DP_INPUT}>
+            <option value="">—</option>
+            {opts.map(o=><option key={o} value={o}>{o}</option>)}
+          </select>
+        : type==="textarea"
+          ? <textarea value={value||""} onChange={e=>onChange({[fkey]:e.target.value})} rows={3} style={{...DP_INPUT,resize:"vertical"}} />
+          : <input type={type} value={value||""} onChange={e=>onChange({[fkey]:e.target.value})} style={DP_INPUT} />
+      }
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 // SUBTASK (recursive, max 3 levels)
 // ─────────────────────────────────────────────
@@ -9555,62 +9599,106 @@ function SubTaskItem({ st, onChange, onDel, level = 0 }) {
   );
 }
 
+
+// ─────────────────────────────────────────────
+// LOOPINQS PANEL
+// ─────────────────────────────────────────────
+function LoopinqsPanel({ task, onClose }) {
+  const [open, setOpen] = useState(false);
+  const p = new URLSearchParams();
+  if (task?.title)        p.set('project', task.title);
+  if (task?.status)       p.set('status',  task.status);
+  if (task?.owner)        p.set('completedBy', task.owner);
+  if (task?.additionalInfo) p.set('summary', task.additionalInfo);
+  if (task?.nextAction)   p.set('nextSteps', task.nextAction);
+  const url = 'https://loopinqs.netlify.app/?' + p.toString();
+  return (
+    <div style={{position:'fixed',right:0,top:0,bottom:0,width:460,background:'#fff',
+      borderLeft:'3px solid #22c55e',zIndex:601,display:'flex',flexDirection:'column',
+      boxShadow:'-12px 0 50px rgba(0,0,0,0.65)',fontFamily:"'DM Sans',sans-serif"}}>
+      <div style={{padding:'14px 18px',background:'#f0fdf4',borderBottom:'1px solid #d1fae5',display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:14,fontWeight:800,color:'#166534',fontFamily:"'Syne',sans-serif"}}>Task Completed</div>
+          <div style={{fontSize:11,color:'#4ade80'}}>Send a Slack update via Loopinqs</div>
+        </div>
+        <button onClick={onClose} style={{background:'none',border:'none',color:'#64748b',cursor:'pointer',fontSize:20,lineHeight:1}}>x</button>
+      </div>
+      {task?.title && (
+        <div style={{padding:'10px 18px',borderBottom:'1px solid #e2e8f0',background:'#fafafa',fontSize:11,color:'#64748b'}}>
+          <strong style={{color:'#1e293b'}}>{task.title}</strong>
+          {task.owner && <span> &middot; {task.owner}</span>}
+          {task.status && <span> &middot; {task.status}</span>}
+        </div>
+      )}
+      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        {open
+          ? <iframe src={url} style={{flex:1,border:'none',width:'100%'}} title="Loopinqs" />
+          : <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14,padding:28}}>
+              <div style={{fontSize:13,color:'#64748b',textAlign:'center',lineHeight:1.7}}>
+                Post a Slack update to the task requester.<br/>Fields are pre-filled from task data.
+              </div>
+              <button onClick={()=>setOpen(true)}
+                style={{background:'#22c55e',border:'none',borderRadius:9,padding:'10px 32px',color:'#fff',fontWeight:700,fontSize:14,cursor:'pointer',boxShadow:'0 2px 12px rgba(34,197,94,0.3)'}}>
+                Open Loopinqs
+              </button>
+              <a href={url} target="_blank" rel="noreferrer"
+                style={{fontSize:11,color:'#94a3b8',textDecoration:'none',borderBottom:'1px dotted #cbd5e1'}}>
+                Open in new tab
+              </a>
+            </div>
+        }
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 // DETAIL PANEL
 // ─────────────────────────────────────────────
-function DetailPanel({ task, allTasks, settings, onUpdate, onClose, onDelete }) {
+function DetailPanel({ task, allTasks, settings, onUpdate, onClose, onDelete, onAddSubtask }) {
   const [t, setT] = useState({ ...task });
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [showLoopinqs, setShowLoopinqs] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [relSrch, setRelSrch] = useState('');
+  const [blkSrch, setBlkSrch] = useState('');
+  const [panelWidth, setPanelWidth] = useState(430);
+  const resizing = useRef(false);
+  const rsStartX = useRef(0);
+  const rsStartW = useRef(430);
+  const startResize = (e) => {
+    resizing.current = true; rsStartX.current = e.clientX; rsStartW.current = panelWidth;
+    const move = (ev) => { if(!resizing.current) return; setPanelWidth(Math.max(300,Math.min(900,rsStartW.current+(rsStartX.current-ev.clientX)))); };
+    const up   = ()  => { resizing.current = false; window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up); };
+    window.addEventListener('mousemove',move); window.addEventListener('mouseup',up); e.preventDefault();
+  };
   useEffect(() => setT({ ...task }), [task.id]);
 
   const set = (patch) => {
-    const updated = { ...t, ...patch };
-    setT(updated);
-    onUpdate(updated);
+    const merged = { ...t, ...patch };
+    if (merged.status === 'Completed') merged.progress = 1;
+    setT(merged);
+    onUpdate(merged);
   };
 
   const vf = settings.visibleFields;
   const color = getBubbleColor(t, settings.colorRules);
   const score = getScore(t);
 
-  const inputStyle = {
-    width:"100%", background:"#f8fafc",
-    border:"1px solid #e2e8f0", borderRadius:6,
-    padding:"6px 9px", color:"#475569", fontSize:12,
-    outline:"none", fontFamily:"inherit",
-  };
-  const labelStyle = {
-    display:"block", fontSize:10, fontWeight:700,
-    letterSpacing:"0.08em", color:"#94a3b8",
-    textTransform:"uppercase", marginBottom:3,
-  };
-  const fieldWrap = { marginBottom:12 };
-
-  const Field = ({ fkey, label, type="text", opts }) => {
-    if (!vf[fkey] && vf[fkey] !== undefined) return null;
-    return (
-      <div style={fieldWrap}>
-        <label style={labelStyle}>{label}</label>
-        {opts
-          ? <select value={t[fkey]||""} onChange={e=>set({[fkey]:e.target.value})} style={inputStyle}>
-              <option value="">—</option>
-              {opts.map(o=><option key={o} value={o}>{o}</option>)}
-            </select>
-          : type==="textarea"
-            ? <textarea value={t[fkey]||""} onChange={e=>set({[fkey]:e.target.value})} rows={3} style={{...inputStyle,resize:"vertical"}} />
-            : <input type={type} value={t[fkey]||""} onChange={e=>set({[fkey]:e.target.value})} style={inputStyle} />
-        }
-      </div>
-    );
-  };
+  // Styles: DP_INPUT / DP_LABEL / DP_WRAP (module-level). Component: TaskField (module-level).
 
   return (
-    <div style={{
-      position:"fixed", right:0, top:0, bottom:0, width:430,
+    <div className="tb-detail-panel" style={{
+      position:"fixed", right:0, top:0, bottom:0, width:panelWidth,
       background:"#f1f5f9", borderLeft:`3px solid ${color}`,
       zIndex:500, display:"flex", flexDirection:"column",
       boxShadow:`-12px 0 50px rgba(0,0,0,0.7)`,
       fontFamily:"'DM Sans', sans-serif",
     }}>
+      <div onMouseDown={startResize}
+        style={{position:'absolute',left:0,top:0,bottom:0,width:6,cursor:'ew-resize',zIndex:20}}
+        onMouseEnter={e=>e.currentTarget.style.background='rgba(99,102,241,0.25)'}
+        onMouseLeave={e=>e.currentTarget.style.background='transparent'} />
       {/* Header */}
       <div style={{ padding:"18px 18px 14px", borderBottom:"1px solid #e2e8f0", background:"#ffffff", flexShrink:0 }}>
         <div style={{ display:"flex", gap:10, alignItems:"flex-start", marginBottom:10 }}>
@@ -9632,7 +9720,7 @@ function DetailPanel({ task, allTasks, settings, onUpdate, onClose, onDelete }) 
       {/* Progress */}
       <div style={{ padding:"12px 18px", borderBottom:"1px solid rgba(255,255,255,0.05)", background:"#ffffff", flexShrink:0 }}>
         <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
-          <span style={labelStyle}>Progress</span>
+          <span style={DP_LABEL}>Progress</span>
           <span style={{ fontSize:12, color, fontWeight:700, fontFamily:"'DM Mono', monospace" }}>{Math.round(t.progress*100)}%</span>
         </div>
         <div style={{ position:"relative", height:6, background:"#f1f5f9", borderRadius:3, overflow:"hidden" }}>
@@ -9646,30 +9734,55 @@ function DetailPanel({ task, allTasks, settings, onUpdate, onClose, onDelete }) 
       {/* Fields */}
       <div style={{ flex:1, overflowY:"auto", padding:"14px 18px" }}>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 14px" }}>
-          <Field fkey="owner"    label="Owner"    opts={OWNER_OPTIONS} />
-          <Field fkey="priority" label="Priority" opts={PRIORITY_OPTIONS} />
-          <Field fkey="status"   label="Status"   opts={STATUS_OPTIONS} />
-          <Field fkey="type"     label="Type"     opts={TYPE_OPTIONS} />
-          <Field fkey="department" label="Department" opts={DEPT_OPTIONS} />
-          <Field fkey="points"   label="Points"   type="number" />
-          <Field fkey="project"  label="Project" />
-          <Field fkey="requester" label="Requester" />
-          <Field fkey="projectedStartDate" label="Proj. Start" type="date" />
-          <Field fkey="projectedEndDate"   label="Proj. End"   type="date" />
-          <Field fkey="actualStartDate"    label="Actual Start" type="date" />
-          <Field fkey="actualEndDate"      label="Actual End"   type="date" />
-          <Field fkey="entryDate"    label="Entry Date" type="date" />
-          <Field fkey="requesterName" label="Req. Name" />
+          <TaskField fkey="owner" label="Owner" opts={OWNER_OPTIONS} value={t["owner"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="priority" label="Priority" opts={PRIORITY_OPTIONS} value={t["priority"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="status" label="Status" opts={STATUS_OPTIONS} value={t["status"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="type" label="Type" opts={TYPE_OPTIONS} value={t["type"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="department" label="Department" opts={DEPT_OPTIONS} value={t["department"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="points" label="Points" type="number" value={String(Math.max(0,Number(t["points"])||0))} vf={vf} onChange={(p)=>set({points:Math.max(0,Math.floor(Number(p.points)||0))})} />
+          <TaskField fkey="project" label="Project" opts={[...new Set(allTasks.map(x=>x.project).filter(Boolean))].sort()} value={t["project"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="requester" label="Requester" value={t["requester"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="projectedStartDate" label="Proj. Start" type="date" value={t["projectedStartDate"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="projectedEndDate" label="Proj. End" type="date" value={t["projectedEndDate"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="actualStartDate" label="Actual Start" type="date" value={t["actualStartDate"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="actualEndDate" label="Actual End" type="date" value={t["actualEndDate"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="entryDate" label="Entry Date" type="date" value={t["entryDate"]||""} vf={vf} onChange={set} />
+          <TaskField fkey="requesterName" label="Req. Name" value={t["requesterName"]||""} vf={vf} onChange={set} />
         </div>
-        <Field fkey="statusReason"   label="Status Reason" />
-        <Field fkey="nextAction"     label="Next Action"   type="textarea" />
-        <Field fkey="additionalInfo" label="Additional Info" type="textarea" />
-        <Field fkey="comment"        label="Comment"       type="textarea" />
+        <TaskField fkey="statusReason" label="Status Reason" value={t["statusReason"]||""} vf={vf} onChange={set} />
+        <TaskField fkey="nextAction" label="Next Action" type="textarea" value={t["nextAction"]||""} vf={vf} onChange={set} />
+        <TaskField fkey="additionalInfo" label="Additional Info" type="textarea" value={t["additionalInfo"]||""} vf={vf} onChange={set} />
+                {vf.comment !== false && (
+          <div style={DP_WRAP}>
+            <label style={DP_LABEL}>Comments</label>
+            <div style={{display:'flex',gap:6,marginBottom:6}}>
+              <textarea value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Add a comment..." rows={2}
+                style={{...DP_INPUT,flex:1,resize:'vertical'}} />
+              <button onClick={()=>{
+                if(!draft.trim()) return;
+                const d=new Date(), pad=n=>String(n).padStart(2,'0');
+                const ts=`${d.getMonth()+1}/${d.getDate()}/${String(d.getFullYear()).slice(2)} ${d.getHours()%12||12}:${pad(d.getMinutes())} ${d.getHours()<12?'AM':'PM'}`;
+                set({savedComments:[...(t.savedComments||[]),{id:Math.random().toString(36).slice(2),text:draft.trim(),ts}]});
+                setDraft('');
+              }} style={{alignSelf:'flex-end',background:'#6366f1',border:'none',borderRadius:6,padding:'6px 12px',color:'#fff',fontWeight:700,fontSize:11,cursor:'pointer',flexShrink:0}}>
+                Save
+              </button>
+            </div>
+            {(t.savedComments||[]).map(c=>(
+              <div key={c.id} style={{background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:7,padding:'7px 10px',marginBottom:4,position:'relative'}}>
+                <div style={{fontSize:10,color:'#94a3b8',marginBottom:3,fontFamily:"'DM Mono',monospace"}}>{c.ts}</div>
+                <div style={{fontSize:12,color:'#475569',lineHeight:1.5,whiteSpace:'pre-wrap',paddingRight:18}}>{c.text}</div>
+                <button onClick={()=>set({savedComments:(t.savedComments||[]).filter(x=>x.id!==c.id)})}
+                  style={{position:'absolute',top:5,right:6,background:'none',border:'none',color:'#cbd5e1',cursor:'pointer',fontSize:13,padding:'1px 4px'}}>x</button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Related Tasks */}
         {vf.relatedTasks !== false && (
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Related Tasks</label>
+          <div style={DP_WRAP}>
+            <label style={DP_LABEL}>Related Tasks</label>
             <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:4 }}>
               {(t.relatedTasks||[]).map(rid => {
                 const rt = allTasks.find(x=>x.id===rid);
@@ -9681,18 +9794,19 @@ function DetailPanel({ task, allTasks, settings, onUpdate, onClose, onDelete }) 
                 ) : null;
               })}
             </div>
-            <select onChange={e=>{ if(e.target.value && !(t.relatedTasks||[]).includes(e.target.value)) set({relatedTasks:[...(t.relatedTasks||[]),e.target.value]}); e.target.value=""; }}
-              style={{...inputStyle,color:"#94a3b8"}}>
-              <option value="">+ Link related task…</option>
-              {allTasks.filter(x=>x.id!==t.id && !(t.relatedTasks||[]).includes(x.id)).map(x=><option key={x.id} value={x.id}>{x.title}</option>)}
+            <input value={relSrch} onChange={e=>setRelSrch(e.target.value)} placeholder="Search by title or ID..." style={{...DP_INPUT,marginBottom:4,fontSize:11}} />
+            <select onChange={e=>{ if(e.target.value && !(t.relatedTasks||[]).includes(e.target.value)){set({relatedTasks:[...(t.relatedTasks||[]),e.target.value]});setRelSrch('');} e.target.value=""; }}
+              style={{...DP_INPUT,color:"#94a3b8"}}>
+              <option value="">+ Link related task...</option>
+              {allTasks.filter(x=>x.id!==t.id && !(t.relatedTasks||[]).includes(x.id) && (!relSrch||x.title.toLowerCase().includes(relSrch.toLowerCase())||(x.shortId||'').toLowerCase().includes(relSrch.toLowerCase()))).map(x=><option key={x.id} value={x.id}>{x.shortId?`[${x.shortId}] `:''}{x.title}</option>)}
             </select>
           </div>
         )}
 
         {/* Blocking Tasks */}
         {vf.blockingTasks !== false && (
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Blocking</label>
+          <div style={DP_WRAP}>
+            <label style={DP_LABEL}>Blocking</label>
             <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:4 }}>
               {(t.blockingTasks||[]).map(bid => {
                 const bt = allTasks.find(x=>x.id===bid);
@@ -9704,17 +9818,18 @@ function DetailPanel({ task, allTasks, settings, onUpdate, onClose, onDelete }) 
                 ) : null;
               })}
             </div>
-            <select onChange={e=>{ if(e.target.value && !(t.blockingTasks||[]).includes(e.target.value)) set({blockingTasks:[...(t.blockingTasks||[]),e.target.value]}); e.target.value=""; }}
-              style={{...inputStyle,color:"#94a3b8"}}>
-              <option value="">+ Mark as blocking…</option>
-              {allTasks.filter(x=>x.id!==t.id && !(t.blockingTasks||[]).includes(x.id)).map(x=><option key={x.id} value={x.id}>{x.title}</option>)}
+            <input value={blkSrch} onChange={e=>setBlkSrch(e.target.value)} placeholder="Search by title or ID..." style={{...DP_INPUT,marginBottom:4,fontSize:11}} />
+            <select onChange={e=>{ if(e.target.value && !(t.blockingTasks||[]).includes(e.target.value)){set({blockingTasks:[...(t.blockingTasks||[]),e.target.value]});setBlkSrch('');} e.target.value=""; }}
+              style={{...DP_INPUT,color:"#94a3b8"}}>
+              <option value="">+ Mark as blocking...</option>
+              {allTasks.filter(x=>x.id!==t.id && !(t.blockingTasks||[]).includes(x.id) && (!blkSrch||x.title.toLowerCase().includes(blkSrch.toLowerCase())||(x.shortId||'').toLowerCase().includes(blkSrch.toLowerCase()))).map(x=><option key={x.id} value={x.id}>{x.shortId?`[${x.shortId}] `:''}{x.title}</option>)}
             </select>
           </div>
         )}
 
         {/* Color Override */}
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Color Override</label>
+        <div style={DP_WRAP}>
+          <label style={DP_LABEL}>Color Override</label>
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
             <input type="color" value={t.colorOverride || color}
               onChange={e=>set({colorOverride:e.target.value})}
@@ -9732,10 +9847,21 @@ function DetailPanel({ task, allTasks, settings, onUpdate, onClose, onDelete }) 
         </div>
 
         {/* Subtasks */}
-        <div style={fieldWrap}>
+        <div style={DP_WRAP}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-            <label style={labelStyle}>Subtasks (3 levels)</label>
-            <button onClick={()=>set({subtasks:[...(t.subtasks||[]),{ id:uid(),title:"",done:false,subtasks:[] }]})}
+            <label style={DP_LABEL}>Subtasks (3 levels)</label>
+            <button onClick={()=>{
+                if(onAddSubtask){
+                  const st={id:uid(),shortId:shortUid(),title:'New Subtask',status:'Not Started',
+                    priority:'Medium',owner:t.owner||'',progress:0,points:0,
+                    canvasId:t.canvasId||'default',parentId:t.id,
+                    relatedTasks:[],blockingTasks:[],subtasks:[],colorOverride:null,
+                    entryDate:todayStr(),updatedAt:Date.now(),x:(t.x||500)+80,y:(t.y||500)+120};
+                  onAddSubtask(st);
+                } else {
+                  set({subtasks:[...(t.subtasks||[]),{id:uid(),title:'',done:false,subtasks:[]}]});
+                }
+              }}
               style={{ background:"rgba(99,102,241,0.15)", border:"1px solid rgba(99,102,241,0.3)", borderRadius:5, padding:"2px 9px", color:"#818cf8", cursor:"pointer", fontSize:11, fontWeight:600 }}>
               + Add
             </button>
@@ -9753,15 +9879,30 @@ function DetailPanel({ task, allTasks, settings, onUpdate, onClose, onDelete }) 
 
       {/* Footer */}
       <div style={{ padding:"11px 18px", borderTop:"1px solid #e2e8f0", display:"flex", justifyContent:"space-between", background:"#ffffff", flexShrink:0 }}>
-        <button onClick={onDelete}
-          style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", borderRadius:7, padding:"6px 14px", color:"#f87171", cursor:"pointer", fontSize:12 }}>
-          Delete
+        {confirmDel
+          ? <span style={{display:'flex',gap:4,alignItems:'center'}}>
+              <span style={{fontSize:11,color:'#ef4444',fontWeight:600}}>Really delete?</span>
+              <button onClick={onDelete} style={{background:'rgba(239,68,68,0.15)',border:'1px solid rgba(239,68,68,0.4)',borderRadius:5,padding:'4px 10px',color:'#ef4444',cursor:'pointer',fontSize:11,fontWeight:700}}>Yes</button>
+              <button onClick={()=>setConfirmDel(false)} style={{background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:5,padding:'4px 10px',color:'#64748b',cursor:'pointer',fontSize:11}}>No</button>
+            </span>
+          : <button onClick={()=>setConfirmDel(true)}
+              style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", borderRadius:7, padding:"6px 14px", color:"#f87171", cursor:"pointer", fontSize:12 }}>
+              Delete
+            </button>
+        }
+        <button onClick={()=>{
+            const completed = {...t, status:'Completed', progress:1};
+            setT(completed); onUpdate(completed); setShowLoopinqs(true);
+          }}
+          style={{background:'rgba(34,197,94,0.15)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:7,padding:'6px 14px',color:'#4ade80',cursor:'pointer',fontSize:12,fontWeight:700}}>
+          Complete
         </button>
         <button onClick={onClose}
           style={{ background:"rgba(99,102,241,0.15)", border:"1px solid rgba(99,102,241,0.3)", borderRadius:7, padding:"6px 16px", color:"#a5b4fc", cursor:"pointer", fontSize:12, fontWeight:600 }}>
           Done
         </button>
       </div>
+      {showLoopinqs && <LoopinqsPanel task={t} onClose={()=>setShowLoopinqs(false)} />}
     </div>
   );
 }
@@ -9912,6 +10053,17 @@ function ConnectionLines({ tasks, activeId }) {
         stroke={active?"#f87171":"#fecaca"} strokeWidth={active?2:1}
         strokeDasharray={active?"none":"4 4"} markerEnd="url(#arrowBlock)"/>);
     });
+    if (t.parentId) {
+      const key=`par:${t.parentId}:${t.id}`;
+      if (!seen.has(key)) { seen.add(key);
+        const parent = tasks.find(x=>x.id===t.parentId);
+        if (parent) {
+          const active = t.id===activeId || parent.id===activeId;
+          lines.push(<line key={key} x1={parent.x+104} y1={parent.y+55} x2={t.x+104} y2={t.y+55}
+            stroke={active?"#a5b4fc":"#c7d2fe"} strokeWidth={active?2:1} strokeDasharray="5 4" opacity={0.7}/>);
+        }
+      }
+    }
   });
   return <>{lines}</>;
 }
@@ -10497,8 +10649,10 @@ function FieldManagerTab({ fieldDefs, onUpdate }) {
   const [activeField, setActiveField] = useState(Object.keys(fieldDefs)[0] || '');
   const [newValue, setNewValue] = useState('');
 
+  const BUILTIN = { department: DEPT_OPTIONS, type: TYPE_OPTIONS, project: [], requestSource: [] };
   const fields = Object.entries(fieldDefs);
-  const def = fieldDefs[activeField] || { label:'', values:[], archived:[] };
+  const rawDef = fieldDefs[activeField] || { label:'', values:[], archived:[] };
+  const def = { ...rawDef, values: (rawDef.values||[]).length > 0 ? rawDef.values : (BUILTIN[activeField]||[]) };
 
   const addValue = () => {
     const v = newValue.trim();
@@ -10615,7 +10769,9 @@ function FieldManagerTab({ fieldDefs, onUpdate }) {
 // ─────────────────────────────────────────────
 // TABLE VIEW
 // ─────────────────────────────────────────────
-function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete, onAdd, onAddMany, canvasId, searchQuery }) {
+function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete, onAdd, onAddMany, onAddSubtask, canvasId, searchQuery }) {
+  const [expandedParents, setExpandedParents] = useState(new Set());
+  const toggleExpand = (pid) => setExpandedParents(p=>{ const n=new Set(p); n.has(pid)?n.delete(pid):n.add(pid); return n; });
   const [sortCol, setSortCol] = useState('entryDate');
   const [sortDir, setSortDir] = useState('desc');
   const [colFilters, setColFilters] = useState({});
@@ -10626,7 +10782,7 @@ function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete
   const ALL_COLS = [
     { key:'shortId',          label:'Task ID',     w:90,  editable:false },
     { key:'title',            label:'Title',       w:220, editable:true,  inputType:'text'   },
-    { key:'owner',            label:'Owner',       w:100, editable:true,  inputType:'text'   },
+    { key:'owner',            label:'Owner',       w:100, editable:true,  inputType:'select', opts:OWNER_OPTIONS },
     { key:'status',           label:'Status',      w:115, editable:true,  inputType:'select', opts:STATUS_OPTIONS },
     { key:'priority',         label:'Priority',    w:90,  editable:true,  inputType:'select', opts:PRIORITY_OPTIONS },
     { key:'points',           label:'Pts',         w:55,  editable:true,  inputType:'number' },
@@ -10634,7 +10790,7 @@ function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete
     { key:'department',       label:'Dept',        w:100, editable:true,  inputType:'text'   },
     { key:'type',             label:'Type',        w:100, editable:true,  inputType:'text'   },
     { key:'requestSource',    label:'Req. Source', w:110, editable:true,  inputType:'text'   },
-    { key:'requesterName',    label:'Requester',   w:110, editable:true,  inputType:'text'   },
+    { key:'requesterName',    label:'Requester',   w:110, editable:true,  inputType:'select', opts:OWNER_OPTIONS },
     { key:'projectedEndDate', label:'Due Date',    w:95,  editable:true,  inputType:'date'   },
     { key:'progress',         label:'Progress',    w:80,  editable:false  },
     { key:'entryDate',        label:'Entry Date',  w:95,  editable:false  },
@@ -10650,6 +10806,7 @@ function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete
 
   // Selection state
   const [selected, setSelected] = useState(new Set());
+  const lastSelIdx = useRef(-1);
 
   // Bulk edit state
   const [showBulkEdit, setShowBulkEdit] = useState(false);
@@ -10741,7 +10898,16 @@ function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete
     if (allSelected) setSelected(prev => { const n=new Set(prev); allFilteredIds.forEach(id=>n.delete(id)); return n; });
     else setSelected(prev => { const n=new Set(prev); allFilteredIds.forEach(id=>n.add(id)); return n; });
   };
-  const toggleRow = (id) => setSelected(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
+  const toggleRow = (id, shiftKey=false) => {
+    const idx = filtered.findIndex(t=>t.id===id);
+    if (shiftKey && lastSelIdx.current >= 0) {
+      const lo=Math.min(idx,lastSelIdx.current), hi=Math.max(idx,lastSelIdx.current);
+      setSelected(prev=>{ const n=new Set(prev); filtered.slice(lo,hi+1).forEach(t=>n.add(t.id)); return n; });
+    } else {
+      setSelected(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
+      lastSelIdx.current = idx;
+    }
+  };
   const clearSelection = () => setSelected(new Set());
 
   // ── INLINE EDIT ──
@@ -10757,7 +10923,9 @@ function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete
       const col = COLS.find(c=>c.key===inlineEdit.colKey);
       let val = inlineVal;
       if (col?.inputType === 'number') val = Number(inlineVal) || 0;
-      onUpdate({ ...task, [inlineEdit.colKey]: val, updatedAt: Date.now() });
+      const updPatch = { [inlineEdit.colKey]: val };
+      if (inlineEdit.colKey === 'status' && val === 'Completed') updPatch.progress = 1;
+      onUpdate({ ...task, ...updPatch, updatedAt: Date.now() });
     }
     setInlineEdit(null);
     setInlineVal('');
@@ -11346,7 +11514,7 @@ function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete
             </tr>
           </thead>
           <tbody>
-            {filtered.map((task, i) => {
+            {filtered.flatMap((task, i) => {
               const isSelected = selected.has(task.id);
               const isOverdue = task.projectedEndDate && task.projectedEndDate < today && task.status !== 'Completed' && task.status !== 'Cancelled';
               return (
@@ -11356,9 +11524,12 @@ function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete
                   onMouseLeave={e=>{ if(!isSelected) e.currentTarget.style.background=i%2===0?'#fff':'#f8fafc'; }}>
 
                   {/* Checkbox */}
-                  <td style={{ padding:'6px 10px', borderBottom:'1px solid #f1f5f9', borderRight:'1px solid #f1f5f9', textAlign:'center' }}
-                    onClick={e=>{ e.stopPropagation(); toggleRow(task.id); }}>
-                    <input type="checkbox" checked={isSelected} onChange={()=>toggleRow(task.id)} style={{ accentColor:'#6366f1', cursor:'pointer', width:14, height:14 }} />
+                  <td style={{ padding:'6px 10px', borderBottom:'1px solid #f1f5f9', borderRight:'1px solid #f1f5f9', textAlign:'center', cursor:'pointer' }}
+                    onClick={e=>{ e.stopPropagation(); toggleRow(task.id, e.shiftKey); }}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'center',width:'100%',height:'100%'}}>
+                      <input type="checkbox" checked={isSelected} onChange={e=>toggleRow(task.id, e.nativeEvent?.shiftKey||false)}
+                        style={{ accentColor:'#6366f1', cursor:'pointer', width:14, height:14, pointerEvents:'none' }} />
+                    </div>
                   </td>
 
                   {/* Data cells — double-click to inline edit */}
@@ -11401,7 +11572,21 @@ function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete
                         ) : (
                           <>
                             {col.key==='shortId'      && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:'#6366f1', fontWeight:700, letterSpacing:'0.04em', whiteSpace:'nowrap' }}>{getShortId(task)}</span>}
-                            {col.key==='title'        && <span style={{ fontWeight:600, color:'#1e293b' }}>{val||'Untitled'}</span>}
+                            {col.key==='title'        && (() => {
+                              const hasChildren = allTasks.some(x=>x.parentId===task.id);
+                              const isOpen = expandedParents.has(task.id);
+                              return (
+                                <span style={{display:'flex',alignItems:'center',gap:4}}>
+                                  {hasChildren && (
+                                    <button onClick={e=>{e.stopPropagation();toggleExpand(task.id);}}
+                                      style={{background:'none',border:'1px solid #c7d2fe',borderRadius:3,width:16,height:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'#6366f1',flexShrink:0,padding:0}}>
+                                      {isOpen?'-':'+'}
+                                    </button>
+                                  )}
+                                  <span style={{fontWeight:600,color:'#1e293b'}}>{val||'Untitled'}</span>
+                                </span>
+                              );
+                            })()}
                             {col.key==='owner'        && <span style={{ color:'#475569' }}>{val||''}</span>}
                             {col.key==='status'       && <span style={{ background:(STATUS_COLORS[val]||'#94a3b8')+'20', color:STATUS_COLORS[val]||'#64748b', borderRadius:20, padding:'2px 7px', fontSize:10, fontWeight:700 }}>{val}</span>}
                             {col.key==='priority'     && <span style={{ color:priorityColor[val]||'#64748b', fontWeight:700, fontSize:11 }}>{val||''}</span>}
@@ -11432,6 +11617,26 @@ function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete
                   })}
                 </tr>
               );
+              // If this parent is expanded, also render child rows
+              const children = expandedParents.has(task.id) ? allTasks.filter(x=>x.parentId===task.id) : [];
+              return [mainRow, ...children.map((child,ci)=>(
+                <tr key={`child-${child.id}`} style={{background:'#f0f4ff'}}>
+                  <td style={{padding:'4px 10px',borderBottom:'1px solid #f1f5f9',borderRight:'1px solid #f1f5f9',textAlign:'center'}}>
+                    <input type="checkbox" checked={selected.has(child.id)} onChange={()=>toggleRow(child.id)}
+                      style={{accentColor:'#6366f1',cursor:'pointer',width:13,height:13}} />
+                  </td>
+                  {COLS.map(col=>(
+                    <td key={col.key} style={{padding:'4px 8px',borderBottom:'1px solid #f1f5f9',borderRight:'1px solid #f1f5f9',fontSize:11,color:'#64748b',cursor:'pointer'}}
+                      onClick={()=>onSelectTask(child.id)}
+                      onDoubleClick={()=>onSelectTask(child.id)}>
+                      {col.key==='title' ? <span style={{paddingLeft:18,color:'#4b5563',fontStyle:'italic'}}>{child.title||'Untitled subtask'}</span>
+                       : col.key==='status' ? <span style={{background:(STATUS_COLORS[child.status]||'#94a3b8')+'20',color:STATUS_COLORS[child.status]||'#64748b',borderRadius:20,padding:'1px 6px',fontSize:10,fontWeight:700}}>{child.status}</span>
+                       : col.key==='progress' ? <span>{Math.round((child.progress||0)*100)}%</span>
+                       : <span>{child[col.key]||''}</span>}
+                    </td>
+                  ))}
+                </tr>
+              ))];
             })}
             {filtered.length === 0 && (
               <tr><td colSpan={COLS.length+1} style={{ padding:40, textAlign:'center', color:'#94a3b8', fontSize:13 }}>No tasks match the current filters.</td></tr>
@@ -11454,6 +11659,9 @@ function TableView({ tasks, allTasks, settings, onUpdate, onSelectTask, onDelete
 function DashboardView({ tasks }) {
   const [timeRange, setTimeRange] = useState('30d');
   const [ownerFilter, setOwnerFilter] = useState('all');
+  const [exp, setExp] = useState(null);
+  const [dashDetail, setDashDetail] = useState(null);
+  const toggle = (k) => setExp(p=>p===k?null:k);
 
   const today = new Date();
   const cutoff = timeRange === '7d' ? new Date(today - 7*864e5)
@@ -11528,15 +11736,53 @@ function DashboardView({ tasks }) {
   }
   const maxVel = Math.max(...weeklyVelocity.map(w=>w.count), 1);
 
-  const Card = ({ children, style={} }) => (
-    <div style={{ background:'#fff', borderRadius:12, border:'1px solid #e2e8f0', padding:'20px 22px', ...style }}>{children}</div>
+  const Card = ({ children, style={}, onClick }) => (
+    <div onClick={onClick} style={{ background:'#fff', borderRadius:12, border:'1px solid #e2e8f0', padding:'24px 22px', minHeight:110, cursor:onClick?'pointer':'default', ...style }}>{children}</div>
   );
   const Label = ({ children }) => <div style={{ fontSize:11, fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:6 }}>{children}</div>;
   const Big = ({ children, color='#1e293b' }) => <div style={{ fontSize:32, fontWeight:800, color, fontFamily:"'Syne', sans-serif", lineHeight:1.1 }}>{children}</div>;
 
+  const TaskRow = ({t}) => (
+    <div onClick={()=>setDashDetail(t)} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 8px',borderRadius:6,cursor:'pointer',marginBottom:2,background:'#f8fafc'}}
+      onMouseEnter={e=>e.currentTarget.style.background='#eff6ff'} onMouseLeave={e=>e.currentTarget.style.background='#f8fafc'}>
+      <div style={{width:7,height:7,borderRadius:'50%',background:STATUS_COLORS[t.status]||'#94a3b8',flexShrink:0}}/>
+      <span style={{flex:1,fontSize:11,color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.title}</span>
+      <span style={{fontSize:10,color:'#94a3b8'}}>{t.owner}</span>
+    </div>
+  );
+  const Expand = ({k,tasks:ts}) => exp!==k?null:(
+    <div style={{marginTop:10,borderTop:'1px solid #f1f5f9',paddingTop:8}}>
+      {ts.length===0?<div style={{fontSize:11,color:'#94a3b8',fontStyle:'italic'}}>No tasks</div>:ts.map(t=><TaskRow key={t.id} t={t}/>)}
+    </div>
+  );
+
   const priorityColors = { Critical:'#ef4444', High:'#f97316', Medium:'#f59e0b', Low:'#22c55e', Unknown:'#94a3b8' };
   const completionRate = baseTasks.length > 0 ? Math.round((completedTasks.length / baseTasks.length) * 100) : 0;
   const avgProgress = baseTasks.length > 0 ? Math.round(baseTasks.reduce((s,t)=>s+(t.progress||0),0)/baseTasks.length*100) : 0;
+
+  if (dashDetail) return (
+    <div style={{flex:1,overflowY:'auto',background:'#f8fafc',padding:'20px'}}>
+      <button onClick={()=>setDashDetail(null)} style={{background:'#6366f1',color:'#fff',border:'none',borderRadius:7,padding:'6px 14px',fontSize:12,fontWeight:700,cursor:'pointer',marginBottom:16}}>
+        Back to Dashboard
+      </button>
+      <div style={{background:'#fff',borderRadius:12,border:'1px solid #e2e8f0',padding:'20px 24px'}}>
+        <div style={{fontSize:17,fontWeight:800,color:'#1e293b',marginBottom:8,fontFamily:"'Syne',sans-serif"}}>{dashDetail.title}</div>
+        <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:14}}>
+          {dashDetail.status&&<span style={{background:(STATUS_COLORS[dashDetail.status]||'#94a3b8')+'25',color:STATUS_COLORS[dashDetail.status]||'#64748b',borderRadius:20,padding:'2px 10px',fontSize:11,fontWeight:700}}>{dashDetail.status}</span>}
+          {dashDetail.owner&&<span style={{background:'#f1f5f9',color:'#64748b',borderRadius:20,padding:'2px 10px',fontSize:11}}>{dashDetail.owner}</span>}
+          {dashDetail.priority&&<span style={{background:'rgba(99,102,241,0.1)',color:'#6366f1',borderRadius:20,padding:'2px 10px',fontSize:11}}>{dashDetail.priority}</span>}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,fontSize:12,color:'#475569',marginBottom:12}}>
+          {dashDetail.project&&<div><strong>Project:</strong> {dashDetail.project}</div>}
+          {dashDetail.department&&<div><strong>Dept:</strong> {dashDetail.department}</div>}
+          {dashDetail.projectedEndDate&&<div><strong>Due:</strong> {dashDetail.projectedEndDate}</div>}
+          {dashDetail.points&&<div><strong>Points:</strong> {dashDetail.points}</div>}
+        </div>
+        {dashDetail.additionalInfo&&<div style={{fontSize:12,color:'#64748b',marginTop:8,lineHeight:1.6}}>{dashDetail.additionalInfo}</div>}
+        {dashDetail.nextAction&&<div style={{fontSize:12,color:'#475569',marginTop:8}}><strong>Next:</strong> {dashDetail.nextAction}</div>}
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ flex:1, overflowY:'auto', background:'#f8fafc', padding:'20px 20px 40px' }}>
@@ -11564,31 +11810,37 @@ function DashboardView({ tasks }) {
 
       {/* KPI row */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(170px, 1fr))', gap:14, marginBottom:18 }}>
-        <Card>
+        <Card onClick={()=>toggle('total')}>
           <Label>Total Tasks</Label>
           <Big>{baseTasks.length}</Big>
+          <Expand k="total" tasks={baseTasks}/>
         </Card>
-        <Card>
+        <Card onClick={()=>toggle('completed')}>
           <Label>Completed</Label>
           <Big color="#22c55e">{completedTasks.length}</Big>
           <div style={{ fontSize:11, color:'#64748b', marginTop:2 }}>{completionRate}% rate</div>
+          <Expand k="completed" tasks={completedTasks}/>
         </Card>
-        <Card>
+        <Card onClick={()=>toggle('inprog')}>
           <Label>In Progress</Label>
           <Big color="#6366f1">{inProgressTasks.length}</Big>
+          <Expand k="inprog" tasks={inProgressTasks}/>
         </Card>
-        <Card>
+        <Card onClick={()=>toggle('blocked')}>
           <Label>Blocked</Label>
           <Big color="#ef4444">{blockedTasks.length}</Big>
+          <Expand k="blocked" tasks={blockedTasks}/>
         </Card>
-        <Card>
+        <Card onClick={()=>toggle('overdue')}>
           <Label>Overdue</Label>
           <Big color={overdueTasks.length>0?"#f97316":"#94a3b8"}>{overdueTasks.length}</Big>
+          <Expand k="overdue" tasks={overdueTasks}/>
         </Card>
-        <Card>
+        <Card onClick={()=>toggle('totalpts')}>
           <Label>Total Points</Label>
           <Big>{totalPoints}</Big>
           <div style={{ fontSize:11, color:'#64748b', marginTop:2 }}>{completedPoints} completed</div>
+          <Expand k="totalpts" tasks={baseTasks}/>
         </Card>
         <Card>
           <Label>Avg Progress</Label>
@@ -11765,6 +12017,7 @@ export default function App() {
   const [showAddZone, setShowAddZone] = useState(false);
   const [editingZone, setEditingZone] = useState(null);
   const [showWebhook, setShowWebhook] = useState(false);
+  const [showLoopinqsBar, setShowLoopinqsBar] = useState(false);
   const [viewMode, setViewMode] = useState('canvas');
   const [searchQuery, setSearchQuery] = useState('');
   const webhookPollRef = useRef(null);
@@ -11950,15 +12203,17 @@ export default function App() {
     save({...data, zones:(data.zones||[]).filter(z=>z.id!==id)});
   };
   const fitZones = () => {
-    const zones = (data.zones||[]).filter(z=>z.canvasId===activeCanvas);
-    if (!zones.length) return;
     const el = canvasElRef.current;
-    const W = el?.clientWidth||1200;
-    const H = el?.clientHeight||800;
-    const xs = zones.map(z=>z.x), ys = zones.map(z=>z.y);
-    const minX=Math.min(...xs)-800, maxX=Math.max(...xs)+800;
-    const minY=Math.min(...ys)-800, maxY=Math.max(...ys)+800;
-    const newScale = Math.min(4, Math.max(0.1, Math.min(W/(maxX-minX), H/(maxY-minY))*0.85));
+    const W = el?.clientWidth||1200, H = el?.clientHeight||800;
+    const zones = (data.zones||[]).filter(z=>z.canvasId===activeCanvas);
+    const tasks = (data.tasks||[]).filter(t=>t.canvasId===activeCanvas);
+    if (!zones.length && !tasks.length) return;
+    const allX = [...zones.map(z=>z.x), ...tasks.map(t=>t.x||0)];
+    const allY = [...zones.map(z=>z.y), ...tasks.map(t=>t.y||0)];
+    const pad = 200;
+    const minX=Math.min(...allX)-pad, maxX=Math.max(...allX)+pad;
+    const minY=Math.min(...allY)-pad, maxY=Math.max(...allY)+pad;
+    const newScale = Math.min(3, Math.max(0.08, Math.min(W/(maxX-minX||1), H/(maxY-minY||1))*0.9));
     const newPanX = W/2 - ((minX+maxX)/2)*newScale;
     const newPanY = H/2 - ((minY+maxY)/2)*newScale;
     panRef.current = {x:newPanX, y:newPanY};
@@ -12155,6 +12410,20 @@ export default function App() {
           )}
         </div>
 
+        <button onClick={()=>setShowLoopinqsBar(b=>!b)}
+          style={{background:'rgba(34,197,94,0.1)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:7,padding:'4px 10px',color:'#4ade80',cursor:'pointer',fontSize:11,fontWeight:600,flexShrink:0}}>
+          Loopinqs
+        </button>
+
+        {viewMode==='canvas' && <>
+          <button onClick={fitZones} style={{background:"#f1f5f9",border:"1px solid #e2e8f0",borderRadius:7,padding:"4px 10px",color:"#64748b",cursor:"pointer",fontSize:11,flexShrink:0}}>
+            Fit
+          </button>
+          <button onClick={()=>setShowAddZone(true)} style={{background:"#f1f5f9",border:"1px solid #e2e8f0",borderRadius:7,padding:"4px 10px",color:"#64748b",cursor:"pointer",fontSize:11,fontWeight:600,flexShrink:0}}>
+            + Zone
+          </button>
+        </>}
+
         <div style={{ flex:1 }} />
 
         {/* Filter button */}
@@ -12186,6 +12455,13 @@ export default function App() {
           )}
         </div>
 
+        {/* AI Parse shortcut */}
+        <button onClick={()=>setShowWebhook(true)}
+          style={{background:'rgba(99,102,241,0.1)',border:'1px solid rgba(99,102,241,0.3)',borderRadius:7,padding:'4px 10px',color:'#818cf8',cursor:'pointer',fontSize:11,fontWeight:600,flexShrink:0}}
+          title="AI Parse - paste text, Claude creates a task">
+          AI Parse
+        </button>
+
         <div style={{ width:1, height:18, background:"rgba(255,255,255,0.07)" }} />
 
         {/* Load Test Data — only visible when canvas is named "Load Test Data" */}
@@ -12198,23 +12474,19 @@ export default function App() {
           : <span style={{ display:"flex", gap:4, alignItems:"center" }}>
               <span style={{ fontSize:11, color:"#f59e0b" }}>Replace canvas tasks?</span>
               <button onClick={()=>{
-                const merged = [
-                  ...data.tasks.filter(t => t.canvasId !== 'default'),
-                  ...SEED_TASKS
-                ];
-                save({...data, tasks: merged, zones: DEFAULT_ZONES});
+                const seeded = SEED_TASKS.map(t=>({...t, canvasId: activeCanvas}));
+                const zoned  = DEFAULT_ZONES.map(z=>({...z, canvasId: activeCanvas}));
+                save({
+                  ...data,
+                  tasks: [...data.tasks.filter(t=>t.canvasId!==activeCanvas), ...seeded],
+                  zones: [...(data.zones||[]).filter(z=>z.canvasId!==activeCanvas), ...zoned],
+                });
                 setShowLoadConfirm(false);
               }} style={{ background:"rgba(34,197,94,0.2)", border:"1px solid rgba(34,197,94,0.4)", borderRadius:5, padding:"3px 8px", color:"#4ade80", cursor:"pointer", fontSize:11, fontWeight:700 }}>Yes</button>
               <button onClick={()=>setShowLoadConfirm(false)}
                 style={{ background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:5, padding:"3px 8px", color:"#f87171", cursor:"pointer", fontSize:11 }}>No</button>
             </span>
         )}
-
-        {/* Fit zones */}
-        <button onClick={fitZones}
-          style={{ background:"#f1f5f9", border:"1px solid #e2e8f0", borderRadius:7, padding:"4px 10px", color:"#64748b", cursor:"pointer", fontSize:11 }}>
-          ⌖ Fit
-        </button>
 
         {/* Webhook intake */}
         <button onClick={()=>setShowWebhook(true)}
@@ -12224,12 +12496,6 @@ export default function App() {
             color: data?.settings?.webhook?.enabled ? "#6366f1" : "#64748b",
             cursor:"pointer", fontSize:11, fontWeight:600 }}>
           {data?.settings?.webhook?.enabled ? '🔌 Live' : '🔌 Webhook'}
-        </button>
-
-        {/* Add Zone */}
-        <button onClick={()=>setShowAddZone(true)}
-          style={{ background:"#f1f5f9", border:"1px solid #e2e8f0", borderRadius:7, padding:"4px 10px", color:"#64748b", cursor:"pointer", fontSize:11, fontWeight:600 }}>
-          + Zone
         </button>
 
         {/* Export */}
@@ -12266,6 +12532,7 @@ export default function App() {
           onDelete={id => save({ ...data, tasks: data.tasks.filter(t => t.id !== id) })}
           onAdd={addTask}
           onAddMany={addManyTasks}
+          onAddSubtask={st=>{addTask(st);setActiveTask(st.id);}}
           canvasId={activeCanvas}
           searchQuery={searchQuery}
         />
@@ -12359,13 +12626,17 @@ export default function App() {
 
       {/* ── DETAIL PANEL ── */}
       {activeTaskObj && (
-        <DetailPanel
-          task={activeTaskObj}
-          allTasks={data.tasks}
-          settings={data.settings}
-          onUpdate={updateTask}
-          onClose={()=>setActiveTask(null)}
-          onDelete={()=>deleteTask(activeTask)} />
+        <>
+          <div style={{position:'fixed',inset:0,zIndex:499}} onClick={()=>setActiveTask(null)} />
+          <DetailPanel
+            task={activeTaskObj}
+            allTasks={data.tasks}
+            settings={data.settings}
+            onUpdate={updateTask}
+            onClose={()=>setActiveTask(null)}
+            onDelete={()=>deleteTask(activeTask)}
+            onAddSubtask={st=>{addTask(st);setActiveTask(st.id);}} />
+        </>
       )}
 
       {/* ── QUICK ADD ── */}
@@ -12373,6 +12644,9 @@ export default function App() {
         <QuickAdd canvasId={activeCanvas} onAdd={addTask} onClose={()=>setShowQuickAdd(false)} />
       )}
 
+      {showLoopinqsBar && (
+        <LoopinqsPanel task={activeTaskObj||{}} onClose={()=>setShowLoopinqsBar(false)} />
+      )}
       {/* ── WEBHOOK PANEL ── */}
       {showWebhook && data && (
         <WebhookPanel
@@ -12724,7 +12998,9 @@ points (number), progress (0-1 float).`,
         }),
       });
       const d = await res.json();
-      const raw = JSON.parse(d.content[0].text.replace(/```json|```/g,'').trim());
+      const rawText = (d?.content?.[0]?.text || d?.result || d?.text || '');
+      if (!rawText) throw new Error('Empty or unexpected response from AI worker');
+      const raw = JSON.parse(rawText.replace(/```json|```/g,'').trim());
       const now = Date.now();
       const task = {
         id: `ai_${now.toString(36)}`,
@@ -12861,6 +13137,15 @@ points (number), progress (0-1 float).`,
                 </button>
               </div>
             )}
+
+            {/* Bookmarklet - any user */}
+            <div style={{background:'#f8fafc',borderRadius:10,padding:12,border:'1px solid #e2e8f0',marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:'#475569',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:6}}>Bookmarklet (any user)</div>
+              <div style={{fontSize:12,color:'#64748b',lineHeight:1.6}}>
+                Any team member can use the bookmarklet to push tasks.<br/>
+                Share the <strong>bookmarklet.html</strong> file + Worker URL + intake secret with them. They open it in a browser and drag the button to their bookmarks bar.
+              </div>
+            </div>
 
             {/* Make.com schema hint */}
             <div style={{ background:'#f8fafc', borderRadius:10, padding:14,
