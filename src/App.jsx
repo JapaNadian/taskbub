@@ -12146,6 +12146,22 @@ export default function App() {
   const [showWebhook, setShowWebhook] = useState(false);
   const [showAiParse, setShowAiParse] = useState(false);
   const [activeUser, setActiveUser] = useState(() => localStorage.getItem('taskbub_active_user') || '');
+
+  // Persist canvas filters per user (must be before the if(!data) guard)
+  useEffect(() => {
+    try { const k=`taskbub_view_${activeUser||'default'}`; const p=JSON.parse(localStorage.getItem(k)||'{}'); localStorage.setItem(k,JSON.stringify({...p,layers,filters})); } catch {}
+  }, [layers, filters, activeUser]);
+
+  // Reload canvas filters when user switches
+  useEffect(() => {
+    if (!activeUser) return;
+    try {
+      const p=JSON.parse(localStorage.getItem(`taskbub_view_${activeUser}`)||'{}');
+      if (p.layers) setLayers(p.layers);
+      if (p.filters) setFilters(p.filters);
+    } catch {}
+  }, [activeUser]);
+
   const [viewMode, setViewMode] = useState('canvas');
   const [searchQuery, setSearchQuery] = useState('');
   const webhookPollRef = useRef(null);
@@ -12484,21 +12500,6 @@ export default function App() {
     save({ ...data, tasks: data.tasks.map(t => t.id === task.id ? updated : t) });
   };
   const toggleLayer = (s) => setLayers(prev => prev.includes(s)?prev.filter(x=>x!==s):[...prev,s]);
-
-  // Persist canvas filters per user
-  useEffect(() => {
-    try { const k=`taskbub_view_${activeUser||'default'}`; const p=JSON.parse(localStorage.getItem(k)||'{}'); localStorage.setItem(k,JSON.stringify({...p,layers,filters})); } catch {}
-  }, [layers, filters, activeUser]);
-
-  // Reload canvas filters when user switches
-  useEffect(() => {
-    if (!activeUser) return;
-    try {
-      const p=JSON.parse(localStorage.getItem(`taskbub_view_${activeUser}`)||'{}');
-      if (p.layers) setLayers(p.layers);
-      if (p.filters) setFilters(p.filters);
-    } catch {}
-  }, [activeUser]);
 
   const syncDot = { synced:"#22c55e", saving:"#f59e0b", error:"#ef4444", offline:"#ef4444", loading:"#475569" }[syncStatus];
 
