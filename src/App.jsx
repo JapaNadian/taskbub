@@ -9425,10 +9425,14 @@ const DEFAULT_SETTINGS = {
   visibleFields: Object.fromEntries(ALL_FIELDS.map(f => [f.key, true])),
   webhook: { url: '', secret: '', enabled: false, canvasId: 'default' },
   fieldDefs: {
+    owner:         { label:'Owner',          type:'dropdown', values:['Dan Hall','Mary Wike','Cora'], archived:[] },
+    status:        { label:'Status',         type:'dropdown', values:['Not Started','In Progress','Blocked','Review','Completed','Cancelled'], archived:[] },
+    priority:      { label:'Priority',       type:'dropdown', values:['Critical','High','Medium','Low'], archived:[] },
     project:       { label:'Project',        type:'dropdown', values:[], archived:[] },
     department:    { label:'Department',     type:'dropdown', values:[], archived:[] },
     type:          { label:'Type',           type:'dropdown', values:[], archived:[] },
     requestSource: { label:'Request Source', type:'dropdown', values:[], archived:[] },
+    requesterName: { label:'Requester Name', type:'dropdown', values:[], archived:[] },
   },
 };
 
@@ -10639,8 +10643,19 @@ function SettingsPanel({ settings, canvases, onUpdateSettings, onAddCanvas, onRe
 function FieldManagerTab({ fieldDefs, onUpdate, allTasks }) {
   const [activeField, setActiveField] = useState(Object.keys(fieldDefs)[0] || '');
   const [newValue, setNewValue] = useState('');
+  const [newFieldLabel, setNewFieldLabel] = useState('');
 
-  const BUILTIN = { department: DEPT_OPTIONS, type: TYPE_OPTIONS, project: [], requestSource: [] };
+  const addField = () => {
+    const label = newFieldLabel.trim();
+    if (!label) return;
+    const key = label.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');
+    if (!key || fieldDefs[key]) return;
+    onUpdate({ ...fieldDefs, [key]: { label, type:'dropdown', values:[], archived:[] } });
+    setActiveField(key);
+    setNewFieldLabel('');
+  };
+
+  const BUILTIN = { owner: OWNER_OPTIONS, status: STATUS_OPTIONS, priority: PRIORITY_OPTIONS, department: DEPT_OPTIONS, type: TYPE_OPTIONS, project: [], requestSource: [], requesterName: [] };
   const fields = Object.entries(fieldDefs);
   const rawDef = fieldDefs[activeField] || { label:'', values:[], archived:[] };
   const def = { ...rawDef, values: (rawDef.values||[]).length > 0 ? rawDef.values : (BUILTIN[activeField]||[]) };
@@ -10693,6 +10708,16 @@ function FieldManagerTab({ fieldDefs, onUpdate, allTasks }) {
             {d.label}
           </button>
         ))}
+        <div style={{ marginTop:12, paddingTop:10, borderTop:'1px solid #f1f5f9' }}>
+          <div style={{ fontSize:9, fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:5 }}>New Field</div>
+          <input value={newFieldLabel} onChange={e=>setNewFieldLabel(e.target.value)}
+            placeholder="Field label…" onKeyDown={e=>{ if(e.key==='Enter') addField(); }}
+            style={{ width:'100%', border:'1px solid #e2e8f0', borderRadius:5, padding:'5px 7px', fontSize:11, outline:'none', color:'#1e293b', marginBottom:4 }} />
+          <button onClick={addField}
+            style={{ width:'100%', background:'rgba(99,102,241,0.1)', border:'1px solid rgba(99,102,241,0.3)', borderRadius:5, padding:'4px 0', color:'#6366f1', cursor:'pointer', fontSize:11, fontWeight:600 }}>
+            + Add Field
+          </button>
+        </div>
       </div>
 
       {/* Value editor */}
@@ -10774,40 +10799,94 @@ function FieldManagerTab({ fieldDefs, onUpdate, allTasks }) {
 // ─────────────────────────────────────────────
 // TABLE VIEW
 // ─────────────────────────────────────────────
-function TableView({ tasks, allTasks, settings, onUpdate, onBulkUpdate, onSelectTask, onDelete, onAdd, onAddMany, onAddSubtask, canvasId, searchQuery }) {
+function TableView({ tasks, allTasks, settings, onUpdate, onBulkUpdate, onSelectTask, onDelete, onAdd, onAddMany, onAddSubtask, canvasId, searchQuery, activeUser }) {
   const [expandedParents, setExpandedParents] = useState(new Set());
   const toggleExpand = (pid) => setExpandedParents(p=>{ const n=new Set(p); n.has(pid)?n.delete(pid):n.add(pid); return n; });
   const [sortCol, setSortCol] = useState('entryDate');
   const [sortDir, setSortDir] = useState('desc');
-  const [colFilters, setColFilters] = useState({});
+  const PREFS_KEY = `taskbub_view_${activeUser || 'default'}`;
+  const loadPrefs = () => { try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch { return {}; } };
+  const savePrefs = (patch) => { try { localStorage.setItem(PREFS_KEY, JSON.stringify({ ...loadPrefs(), ...patch })); } catch {} };
+  const [colFilters, setColFilters] = useState(() => loadPrefs().colFilters || {});
+  useEffect(() => { savePrefs({ colFilters }); }, [colFilters, activeUser]);
   const [openFilter, setOpenFilter] = useState(null);
   const filterRef = useRef(null);
 
-  // Column visibility
+  // Column definitions — built-in + any custom fields added via Keys tab
+  const BUILTIN_COL_KEYS = new Set(['shortId','title','owner','status','priority','points','project','department','type','requestSource','requesterName','projectedEndDate','progress','entryDate','nextAction','additionalInfo','comment']);
   const ALL_COLS = [
     { key:'shortId',          label:'Task ID',     w:90,  editable:false },
     { key:'title',            label:'Title',       w:220, editable:true,  inputType:'text'   },
-    { key:'owner',            label:'Owner',       w:100, editable:true,  inputType:'select', opts:OWNER_OPTIONS },
-    { key:'status',           label:'Status',      w:115, editable:true,  inputType:'select', opts:STATUS_OPTIONS },
-    { key:'priority',         label:'Priority',    w:90,  editable:true,  inputType:'select', opts:PRIORITY_OPTIONS },
+    { key:'owner',            label:'Owner',       w:100, editable:true,  inputType:'select', opts:(settings?.fieldDefs?.owner?.values||[]).length ? settings.fieldDefs.owner.values : OWNER_OPTIONS },
+    { key:'status',           label:'Status',      w:115, editable:true,  inputType:'select', opts:(settings?.fieldDefs?.status?.values||[]).length ? settings.fieldDefs.status.values : STATUS_OPTIONS },
+    { key:'priority',         label:'Priority',    w:90,  editable:true,  inputType:'select', opts:(settings?.fieldDefs?.priority?.values||[]).length ? settings.fieldDefs.priority.values : PRIORITY_OPTIONS },
     { key:'points',           label:'Pts',         w:55,  editable:true,  inputType:'number' },
     { key:'project',          label:'Project',     w:130, editable:true,  inputType:'text'   },
     { key:'department',       label:'Dept',        w:100, editable:true,  inputType:'text'   },
     { key:'type',             label:'Type',        w:100, editable:true,  inputType:'text'   },
     { key:'requestSource',    label:'Req. Source', w:110, editable:true,  inputType:'text'   },
-    { key:'requesterName',    label:'Requester',   w:110, editable:true,  inputType:'select', opts:OWNER_OPTIONS },
+    { key:'requesterName',    label:'Requester',   w:110, editable:true,  inputType:'select', opts:(settings?.fieldDefs?.requesterName?.values||[]).length ? settings.fieldDefs.requesterName.values : OWNER_OPTIONS },
     { key:'projectedEndDate', label:'Due Date',    w:95,  editable:true,  inputType:'date'   },
     { key:'progress',         label:'Progress',    w:80,  editable:false  },
     { key:'entryDate',        label:'Entry Date',  w:95,  editable:false  },
     { key:'nextAction',       label:'Next Action', w:180, editable:true,  inputType:'text'   },
     { key:'additionalInfo',   label:'Add\'l Info', w:180, editable:true,  inputType:'text'   },
     { key:'comment',          label:'Comment',     w:160, editable:true,  inputType:'text'   },
+    // Custom fields added via Keys tab
+    ...Object.entries(settings?.fieldDefs || {})
+      .filter(([k]) => !BUILTIN_COL_KEYS.has(k))
+      .map(([key, def]) => ({ key, label:def.label, w:120, editable:true,
+        inputType:(def.values||[]).length > 0 ? 'select' : 'text', opts:def.values || [] })),
   ];
+
   const DEFAULT_VISIBLE = new Set(['shortId','title','owner','status','priority','points','project','department','type','requestSource','requesterName','projectedEndDate','progress','entryDate']);
-  const [visibleCols, setVisibleCols] = useState(DEFAULT_VISIBLE);
+
+  const [visibleCols, setVisibleCols] = useState(() => {
+    const saved = loadPrefs().visibleCols;
+    return saved ? new Set(saved) : DEFAULT_VISIBLE;
+  });
   const [showFieldsPicker, setShowFieldsPicker] = useState(false);
   const fieldsPickerRef = useRef(null);
-  const COLS = ALL_COLS.filter(c => visibleCols.has(c.key));
+
+  // ── Column order + drag-reorder state ──────────────────────────────────────
+  const [colOrder, setColOrder] = useState(() => {
+    const allKeys = ALL_COLS.map(c=>c.key);
+    const saved = loadPrefs().colOrder;
+    if (saved?.length) {
+      const filtered = saved.filter(k => allKeys.includes(k));
+      const missing = allKeys.filter(k => !saved.includes(k));
+      return [...filtered, ...missing];
+    }
+    return allKeys;
+  });
+  const [dragColKey, setDragColKey] = useState(null);
+  const [dragOverKey, setDragOverKey] = useState(null);
+
+  // Persist prefs when they change
+  useEffect(() => { savePrefs({ visibleCols: [...visibleCols] }); }, [visibleCols, activeUser]);
+  useEffect(() => { savePrefs({ colOrder }); }, [colOrder, activeUser]);
+
+  // Reload prefs when user switches
+  useEffect(() => {
+    const p = loadPrefs();
+    if (p.visibleCols) setVisibleCols(new Set(p.visibleCols));
+    if (p.colFilters) setColFilters(p.colFilters);
+    const allKeys = ALL_COLS.map(c=>c.key);
+    if (p.colOrder?.length) {
+      const filtered = p.colOrder.filter(k => allKeys.includes(k));
+      const missing = allKeys.filter(k => !p.colOrder.includes(k));
+      setColOrder([...filtered, ...missing]);
+    } else {
+      setColOrder(allKeys);
+    }
+  }, [activeUser]);
+
+  // Compute visible columns in user's preferred order, append any new custom cols at end
+  const effectiveOrder = [
+    ...colOrder.filter(k => ALL_COLS.some(c=>c.key===k)),
+    ...ALL_COLS.filter(c=>!colOrder.includes(c.key)).map(c=>c.key),
+  ];
+  const COLS = effectiveOrder.map(k=>ALL_COLS.find(c=>c.key===k)).filter(Boolean).filter(c=>visibleCols.has(c.key));
 
   // Selection state
   const [selected, setSelected] = useState(new Set());
@@ -11487,7 +11566,21 @@ function TableView({ tasks, allTasks, settings, onUpdate, onBulkUpdate, onSelect
                 const hasFilter = colFilters[col.key]?.length > 0;
                 const isSorted = sortCol === col.key;
                 return (
-                  <th key={col.key} style={{ width:col.w, minWidth:col.w, textAlign:'left', padding:'6px 8px', borderBottom:'2px solid #e2e8f0', borderRight:'1px solid #e2e8f0', position:'relative', userSelect:'none', whiteSpace:'nowrap' }}>
+                  <th key={col.key}
+                  draggable
+                  onDragStart={e=>{ e.dataTransfer.effectAllowed='move'; setDragColKey(col.key); }}
+                  onDragEnd={()=>{ setDragColKey(null); setDragOverKey(null); }}
+                  onDragOver={e=>{ e.preventDefault(); setDragOverKey(col.key); }}
+                  onDrop={e=>{ e.preventDefault();
+                    if (!dragColKey || dragColKey===col.key) { setDragColKey(null); setDragOverKey(null); return; }
+                    setColOrder(prev=>{
+                      const from=prev.indexOf(dragColKey), to=prev.indexOf(col.key);
+                      if(from<0||to<0) return prev;
+                      const next=[...prev]; next.splice(from,1); next.splice(to,0,dragColKey); return next;
+                    });
+                    setDragColKey(null); setDragOverKey(null);
+                  }}
+                  style={{ width:col.w, minWidth:col.w, textAlign:'left', padding:'6px 8px', borderBottom:'2px solid #e2e8f0', borderRight:'1px solid #e2e8f0', position:'relative', userSelect:'none', whiteSpace:'nowrap', cursor:'grab', opacity:dragColKey===col.key?0.4:1, boxShadow:dragOverKey===col.key&&dragColKey!==col.key?'inset 3px 0 0 #6366f1':'none', transition:'opacity 0.15s,box-shadow 0.1s' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:3 }}>
                       <span onClick={()=>handleSort(col.key)} style={{ cursor:'pointer', color:isSorted?'#6366f1':'#475569', fontWeight:isSorted?700:600, fontSize:11, flex:1 }}>
                         {col.label} {isSorted?(sortDir==='asc'?'↑':'↓'):''}
@@ -11662,7 +11755,7 @@ function TableView({ tasks, allTasks, settings, onUpdate, onBulkUpdate, onSelect
 // ─────────────────────────────────────────────
 // DASHBOARD VIEW
 // ─────────────────────────────────────────────
-function DashboardView({ tasks }) {
+function DashboardView({ tasks, searchQuery }) {
   const [timeRange, setTimeRange] = useState('30d');
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [exp, setExp] = useState(null);
@@ -11681,8 +11774,15 @@ function DashboardView({ tasks }) {
     return d >= cutoff;
   };
 
-  const owners = [...new Set(tasks.map(t=>t.owner).filter(Boolean))].sort();
-  const baseTasks = tasks.filter(t => inRange(t) && (ownerFilter === 'all' || t.owner === ownerFilter));
+  // Apply search query filter first
+  const searchedTasks = searchQuery?.trim()
+    ? tasks.filter(t => {
+        const q = searchQuery.toLowerCase();
+        return ['title','shortId','owner','project','department','type','requesterName','status','priority','nextAction'].some(k => String(t[k]||'').toLowerCase().includes(q));
+      })
+    : tasks;
+  const owners = [...new Set(searchedTasks.map(t=>t.owner).filter(Boolean))].sort();
+  const baseTasks = searchedTasks.filter(t => inRange(t) && (ownerFilter === 'all' || t.owner === ownerFilter));
 
   // Metrics
   const totalPoints = baseTasks.reduce((s,t)=>s+(t.points||0), 0);
@@ -11710,7 +11810,7 @@ function DashboardView({ tasks }) {
 
   // By owner (when showing all)
   const ownerMap = {};
-  tasks.filter(inRange).forEach(t => {
+  searchedTasks.filter(inRange).forEach(t => {
     const o = t.owner || '(Unassigned)';
     if (!ownerMap[o]) ownerMap[o] = { tasks:0, pts:0, completed:0, blocked:0, inProgress:0 };
     ownerMap[o].tasks++;
@@ -11977,7 +12077,7 @@ function DashboardView({ tasks }) {
             </thead>
             <tbody>
               {byOwner.map(([owner, d]) => {
-                const ownerComplPts = tasks.filter(inRange).filter(t=>t.owner===owner&&t.status==='Completed').reduce((s,t)=>s+(t.points||0),0);
+                const ownerComplPts = searchedTasks.filter(inRange).filter(t=>t.owner===owner&&t.status==='Completed').reduce((s,t)=>s+(t.points||0),0);
                 const rate = d.tasks > 0 ? Math.round(d.completed/d.tasks*100) : 0;
                 return (
                   <tr key={owner} style={{ borderBottom:'1px solid #f8fafc' }} onMouseEnter={e=>e.currentTarget.style.background='#f8fafc'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
@@ -12045,6 +12145,7 @@ export default function App() {
   const [editingZone, setEditingZone] = useState(null);
   const [showWebhook, setShowWebhook] = useState(false);
   const [showAiParse, setShowAiParse] = useState(false);
+  const [activeUser, setActiveUser] = useState(() => localStorage.getItem('taskbub_active_user') || '');
   const [viewMode, setViewMode] = useState('canvas');
   const [searchQuery, setSearchQuery] = useState('');
   const webhookPollRef = useRef(null);
@@ -12384,6 +12485,21 @@ export default function App() {
   };
   const toggleLayer = (s) => setLayers(prev => prev.includes(s)?prev.filter(x=>x!==s):[...prev,s]);
 
+  // Persist canvas filters per user
+  useEffect(() => {
+    try { const k=`taskbub_view_${activeUser||'default'}`; const p=JSON.parse(localStorage.getItem(k)||'{}'); localStorage.setItem(k,JSON.stringify({...p,layers,filters})); } catch {}
+  }, [layers, filters, activeUser]);
+
+  // Reload canvas filters when user switches
+  useEffect(() => {
+    if (!activeUser) return;
+    try {
+      const p=JSON.parse(localStorage.getItem(`taskbub_view_${activeUser}`)||'{}');
+      if (p.layers) setLayers(p.layers);
+      if (p.filters) setFilters(p.filters);
+    } catch {}
+  }, [activeUser]);
+
   const syncDot = { synced:"#22c55e", saving:"#f59e0b", error:"#ef4444", offline:"#ef4444", loading:"#475569" }[syncStatus];
 
   // Stats
@@ -12420,6 +12536,14 @@ export default function App() {
             </button>
           ))}
         </div>
+
+        {/* User picker */}
+        <select value={activeUser} onChange={e=>{ const u=e.target.value; setActiveUser(u); localStorage.setItem('taskbub_active_user',u); }}
+          style={{ border:'1px solid #e2e8f0', borderRadius:7, padding:'3px 9px', fontSize:11, color: activeUser?'#1e293b':'#94a3b8', background:'#f8fafc', cursor:'pointer', outline:'none', flexShrink:0 }}
+          title="Who is using TaskBub right now? Filters and column layout are saved per user.">
+          <option value="">👤 Select user</option>
+          {(data?.settings?.fieldDefs?.owner?.values?.length ? data.settings.fieldDefs.owner.values : OWNER_OPTIONS).map(o=><option key={o} value={o}>{o}</option>)}
+        </select>
 
         {/* ── SHARED SEARCH BAR ── */}
         <div style={{ position:'relative', marginLeft:6 }}>
@@ -12573,12 +12697,13 @@ export default function App() {
           onAddSubtask={st=>{addTask(st);setActiveTask(st.id);}}
           canvasId={activeCanvas}
           searchQuery={searchQuery}
+          activeUser={activeUser}
         />
       )}
 
       {/* ── DASHBOARD VIEW ── */}
       {viewMode === 'dashboard' && (
-        <DashboardView tasks={allCanvasTasks} />
+        <DashboardView tasks={allCanvasTasks} searchQuery={searchQuery} />
       )}
 
       {/* ── CANVAS ── */}
